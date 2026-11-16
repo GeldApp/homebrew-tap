@@ -1,0 +1,42 @@
+name: Cask checks
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cask-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Cask audit
+    runs-on: macos-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint GitHub Actions workflows
+        run: |
+          brew install actionlint
+          actionlint .github/workflows/*.yml
+
+      - name: Validate the published cask, when one exists
+        run: |
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          if [ -f Casks/geldapp.rb ]; then
+            ruby -c Casks/geldapp.rb
+            brew style Casks/geldapp.rb
+            brew audit --cask --strict Casks/geldapp.rb
+          else
+            echo "No cask exists yet; it will be generated from the first published release asset."
+          fi
