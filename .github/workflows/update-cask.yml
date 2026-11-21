@@ -40,16 +40,21 @@ jobs:
             echo 'available=false' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo 'available=true' >> "$GITHUB_OUTPUT"
+          if python3 scripts/prepare_release.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-asset.json"; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            validation_status=$?
+            if [ "$validation_status" -eq 2 ]; then
+              echo "Latest stable release is not an immutable cask-compatible DMG release; waiting for a compatible release."
+              echo 'available=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit "$validation_status"
+          fi
 
       - name: Read and verify the DMG checksum
         if: ${{ steps.release.outputs.available == 'true' }}
         run: |
-          if ! python3 scripts/prepare_release.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-asset.json"; then
-            echo "Latest stable release is not an immutable cask-compatible DMG release; waiting for a compatible release."
-            echo 'available=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           checksum_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["checksum_url"])' "$RUNNER_TEMP/release-asset.json")"
           curl --fail --location --silent --show-error "$checksum_url" --output "$RUNNER_TEMP/release.sha256"
           dmg_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dmg_url"])' "$RUNNER_TEMP/release-asset.json")"
@@ -76,7 +81,7 @@ jobs:
           add-paths: Casks/geldapp.rb
 
       - name: Dispatch cask checks on the PR branch
-        if: ${{ steps.cask-pr.outputs.pull-request-number != '' && steps.cask-pr.outputs.pull-request-branch != '' }}
+        if: ${{ steps.release.outputs.available == 'true' && steps.cask-pr.outputs.pull-request-number != '' && steps.cask-pr.outputs.pull-request-branch != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.cask-pr.outputs.pull-request-number }}
@@ -95,7 +100,7 @@ jobs:
           gh workflow run checks.yml --ref "$PR_BRANCH" -f expected_sha="$pr_sha"
 
       - name: Enable squash auto-merge after required checks
-        if: ${{ steps.cask-pr.outputs.pull-request-number != '' }}
+        if: ${{ steps.release.outputs.available == 'true' && steps.cask-pr.outputs.pull-request-number != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ steps.cask-pr.outputs.pull-request-number }}

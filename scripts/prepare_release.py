@@ -10,11 +10,15 @@ import sys
 SEMVER = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\Z")
 
 
+class IncompatibleRelease(ValueError):
+    """A stable release that predates the immutable DMG cask contract."""
+
+
 def prepare_release(release: dict) -> dict:
     if release.get("draft") is not False or release.get("prerelease") is not False:
         raise ValueError("Only published stable releases can create a cask")
     if release.get("immutable") is not True:
-        raise ValueError("Only immutable published releases can create a cask")
+        raise IncompatibleRelease("Release is not an immutable published release")
 
     tag = release.get("tag_name", "")
     match = SEMVER.fullmatch(tag)
@@ -34,15 +38,19 @@ def prepare_release(release: dict) -> dict:
             raise ValueError("Release contains malformed asset metadata")
         asset_name = asset.get("name")
         if asset_name in {dmg_name, checksum_name}:
+            if asset_name in asset_urls:
+                raise ValueError(f"Release contains duplicate {asset_name} assets")
             asset_urls[asset_name] = asset.get("browser_download_url")
             asset_digests[asset_name] = asset.get("digest")
 
     expected_dmg_url = f"https://github.com/GeldApp/GeldApp/releases/download/{tag}/{dmg_name}"
     expected_checksum_url = f"https://github.com/GeldApp/GeldApp/releases/download/{tag}/{checksum_name}"
-    if asset_urls.get(dmg_name) != expected_dmg_url:
-        raise ValueError(f"Release {tag} lacks the expected versioned DMG asset")
-    if asset_urls.get(checksum_name) != expected_checksum_url:
-        raise ValueError(f"Release {tag} lacks the matching versioned checksum asset")
+    if dmg_name not in asset_urls or checksum_name not in asset_urls:
+        raise IncompatibleRelease(f"Release {tag} lacks the expected versioned DMG or checksum asset")
+    if asset_urls[dmg_name] != expected_dmg_url:
+        raise ValueError(f"Release {tag} has an invalid versioned DMG asset URL")
+    if asset_urls[checksum_name] != expected_checksum_url:
+        raise ValueError(f"Release {tag} has an invalid versioned checksum asset URL")
 
     return {
         "tag": tag,
@@ -56,7 +64,11 @@ def prepare_release(release: dict) -> dict:
 
 def main() -> None:
     release = json.loads(pathlib.Path(sys.argv[1]).read_text())
-    prepared = prepare_release(release)
+    try:
+        prepared = prepare_release(release)
+    except IncompatibleRelease as error:
+        print(error, file=sys.stderr)
+        raise SystemExit(2) from error
     pathlib.Path(sys.argv[2]).write_text(json.dumps(prepared))
 
 
