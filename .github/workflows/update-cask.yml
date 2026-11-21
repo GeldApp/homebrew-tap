@@ -45,7 +45,11 @@ jobs:
       - name: Read and verify the DMG checksum
         if: ${{ steps.release.outputs.available == 'true' }}
         run: |
-          python3 scripts/prepare_release.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-asset.json"
+          if ! python3 scripts/prepare_release.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-asset.json"; then
+            echo "Latest stable release is not an immutable cask-compatible DMG release; waiting for a compatible release."
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           checksum_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["checksum_url"])' "$RUNNER_TEMP/release-asset.json")"
           curl --fail --location --silent --show-error "$checksum_url" --output "$RUNNER_TEMP/release.sha256"
           dmg_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dmg_url"])' "$RUNNER_TEMP/release-asset.json")"

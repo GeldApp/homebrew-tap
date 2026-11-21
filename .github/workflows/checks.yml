@@ -30,14 +30,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Lint GitHub Actions workflows
+      - name: Verify the exact checkout SHA
         env:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
-          if [ -n "$EXPECTED_SHA" ] && [ "${GITHUB_SHA}" != "$EXPECTED_SHA" ]; then
+          checkout_sha="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          test "$checkout_sha" = "$GITHUB_SHA"
+          if [ -n "$EXPECTED_SHA" ] && [ "$GITHUB_SHA" != "$EXPECTED_SHA" ]; then
             echo "Workflow ref resolved to ${GITHUB_SHA}, expected $EXPECTED_SHA"
             exit 1
           fi
+
+      - name: Lint GitHub Actions workflows
+        run: |
           brew install actionlint
           actionlint .github/workflows/*.yml
 
@@ -45,9 +50,34 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p 'test_*.py'
           if [ -f Casks/geldapp.rb ]; then
+            brew tap --custom-remote GeldApp/tap "$GITHUB_WORKSPACE"
+            tap_path="$(brew --repo GeldApp/tap)"
+            test "$(git -C "$tap_path" rev-parse HEAD)" = "$GITHUB_SHA"
+            resolved_cask="$RUNNER_TEMP/resolved-geldapp.rb"
+            brew cat --cask GeldApp/tap/geldapp > "$resolved_cask"
+            cmp "$resolved_cask" "$GITHUB_WORKSPACE/Casks/geldapp.rb"
+
             ruby -c Casks/geldapp.rb
             brew style Casks/geldapp.rb
-            brew audit --cask --strict geldapp
+            brew audit --cask --strict GeldApp/tap/geldapp
+            brew fetch --cask --force GeldApp/tap/geldapp
+            downloaded_dmg="$(brew --cache --cask GeldApp/tap/geldapp)"
+            python3 - "$GITHUB_WORKSPACE/Casks/geldapp.rb" "$downloaded_dmg" <<'PY'
+          import hashlib
+          import pathlib
+          import re
+          import sys
+
+          cask_text = pathlib.Path(sys.argv[1]).read_text()
+          dmg_path = pathlib.Path(sys.argv[2])
+          declared = re.findall(r'^\s*sha256 "([0-9a-f]{64})"\s*$', cask_text, re.MULTILINE)
+          if len(declared) != 1:
+              raise SystemExit("Cask must declare exactly one SHA-256 digest")
+          actual = hashlib.sha256(dmg_path.read_bytes()).hexdigest()
+          if actual != declared[0]:
+              raise SystemExit("Downloaded cask DMG does not match its declared SHA-256")
+          print("Downloaded cask DMG matches its declared SHA-256")
+          PY
           else
-            echo "No cask exists yet; it will be generated from the first published release asset."
+            echo "No cask exists yet; release-asset generation and download verification begin after the first compatible published release."
           fi
