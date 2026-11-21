@@ -11,6 +11,7 @@ def release_fixture():
     return {
         "draft": False,
         "prerelease": False,
+        "immutable": True,
         "tag_name": tag,
         "assets": [
             {"name": dmg, "browser_download_url": f"{base}/{dmg}"},
@@ -26,12 +27,18 @@ class PrepareReleaseTests(unittest.TestCase):
         self.assertEqual(prepared["tag"], "v0.2.1")
         self.assertTrue(prepared["dmg_url"].endswith("GeldApp-0.2.1-macos-universal.dmg"))
 
-    def test_rejects_draft_and_prerelease(self):
-        for field in ("draft", "prerelease"):
+    def test_rejects_draft_prerelease_and_mutable_release(self):
+        for field, value in (("draft", True), ("prerelease", True), ("immutable", False)):
             release = release_fixture()
-            release[field] = True
+            release[field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
                 prepare_release(release)
+
+    def test_rejects_release_without_immutable_metadata(self):
+        release = release_fixture()
+        del release["immutable"]
+        with self.assertRaisesRegex(ValueError, "immutable"):
+            prepare_release(release)
 
     def test_rejects_unstable_or_unsafe_tag(self):
         for tag in ("v1.2", "v1.2.3-beta.1", 'v1.2.3"; system("echo unsafe")'):

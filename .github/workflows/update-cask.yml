@@ -2,7 +2,7 @@ name: Update GeldApp cask
 
 on:
   schedule:
-    - cron: '17 * * * *'
+    - cron: '0 8 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -48,10 +48,12 @@ jobs:
           python3 scripts/prepare_release.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-asset.json"
           checksum_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["checksum_url"])' "$RUNNER_TEMP/release-asset.json")"
           curl --fail --location --silent --show-error "$checksum_url" --output "$RUNNER_TEMP/release.sha256"
+          dmg_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dmg_url"])' "$RUNNER_TEMP/release-asset.json")"
+          curl --fail --location --silent --show-error "$dmg_url" --output "$RUNNER_TEMP/GeldApp.dmg"
 
       - name: Write the exact-version cask
         if: ${{ steps.release.outputs.available == 'true' }}
-        run: python3 scripts/write_cask.py "$RUNNER_TEMP/release-asset.json" "$RUNNER_TEMP/release.sha256" Casks/geldapp.rb
+        run: python3 scripts/write_cask.py "$RUNNER_TEMP/release-asset.json" "$RUNNER_TEMP/release.sha256" Casks/geldapp.rb "$RUNNER_TEMP/GeldApp.dmg"
 
       - name: Create or update the cask pull request
         id: cask-pr
@@ -70,11 +72,23 @@ jobs:
           add-paths: Casks/geldapp.rb
 
       - name: Dispatch cask checks on the PR branch
-        if: ${{ steps.cask-pr.outputs.pull-request-branch != '' }}
+        if: ${{ steps.cask-pr.outputs.pull-request-number != '' && steps.cask-pr.outputs.pull-request-branch != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.cask-pr.outputs.pull-request-number }}
           PR_BRANCH: ${{ steps.cask-pr.outputs.pull-request-branch }}
-        run: gh workflow run checks.yml --ref "$PR_BRANCH"
+          PR_URL: ${{ steps.cask-pr.outputs.pull-request-url }}
+        run: |
+          pr_json="$(gh pr view "$PR_NUMBER" --json state,headRefName,headRefOid)"
+          pr_state="$(jq -r '.state' <<<"$pr_json")"
+          pr_head="$(jq -r '.headRefName' <<<"$pr_json")"
+          pr_sha="$(jq -r '.headRefOid' <<<"$pr_json")"
+          if [ "$pr_state" != OPEN ] || [ "$pr_head" != "$PR_BRANCH" ] || [ -z "$pr_sha" ]; then
+            echo "Refusing workflow dispatch: $PR_URL is not open on the expected branch."
+            exit 1
+          fi
+          echo "Dispatching cask audit for PR head $pr_sha on $PR_BRANCH"
+          gh workflow run checks.yml --ref "$PR_BRANCH" -f expected_sha="$pr_sha"
 
       - name: Enable squash auto-merge after required checks
         if: ${{ steps.cask-pr.outputs.pull-request-number != '' }}

@@ -13,6 +13,8 @@ SEMVER = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\Z")
 def prepare_release(release: dict) -> dict:
     if release.get("draft") is not False or release.get("prerelease") is not False:
         raise ValueError("Only published stable releases can create a cask")
+    if release.get("immutable") is not True:
+        raise ValueError("Only immutable published releases can create a cask")
 
     tag = release.get("tag_name", "")
     match = SEMVER.fullmatch(tag)
@@ -26,12 +28,14 @@ def prepare_release(release: dict) -> dict:
         raise ValueError("Release assets must be a list")
 
     asset_urls = {}
+    asset_digests = {}
     for asset in assets:
         if not isinstance(asset, dict):
             raise ValueError("Release contains malformed asset metadata")
         asset_name = asset.get("name")
         if asset_name in {dmg_name, checksum_name}:
             asset_urls[asset_name] = asset.get("browser_download_url")
+            asset_digests[asset_name] = asset.get("digest")
 
     expected_dmg_url = f"https://github.com/GeldApp/GeldApp/releases/download/{tag}/{dmg_name}"
     expected_checksum_url = f"https://github.com/GeldApp/GeldApp/releases/download/{tag}/{checksum_name}"
@@ -46,6 +50,7 @@ def prepare_release(release: dict) -> dict:
         "dmg_name": dmg_name,
         "dmg_url": expected_dmg_url,
         "checksum_url": expected_checksum_url,
+        "api_digest": asset_digests.get(dmg_name),
     }
 
 

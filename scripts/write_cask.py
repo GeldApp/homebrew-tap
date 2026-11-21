@@ -2,6 +2,7 @@
 """Write a cask only from a published, versioned release and its SHA-256 asset."""
 
 import json
+import hashlib
 import pathlib
 import re
 import sys
@@ -11,6 +12,7 @@ def main() -> None:
     release_asset = json.loads(pathlib.Path(sys.argv[1]).read_text())
     checksum_text = pathlib.Path(sys.argv[2]).read_text().strip()
     output = pathlib.Path(sys.argv[3])
+    dmg_path = pathlib.Path(sys.argv[4])
 
     version = release_asset["version"]
     tag = release_asset["tag"]
@@ -25,6 +27,13 @@ def main() -> None:
     if not match:
         raise SystemExit("Checksum asset must contain one SHA-256 line for the exact DMG name")
     sha256 = match.group(1).lower()
+    actual_sha256 = hashlib.sha256(dmg_path.read_bytes()).hexdigest()
+    if actual_sha256 != sha256:
+        raise SystemExit("Downloaded DMG does not match the published checksum asset")
+
+    api_digest = release_asset.get("api_digest")
+    if api_digest is not None and api_digest != f"sha256:{actual_sha256}":
+        raise SystemExit("Downloaded DMG does not match the GitHub release asset digest")
 
     expected_url = f"https://github.com/GeldApp/GeldApp/releases/download/{tag}/{dmg_name}"
     if release_asset["dmg_url"] != expected_url:

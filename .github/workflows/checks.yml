@@ -4,6 +4,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Optional PR head SHA to verify for automation dispatches
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -26,7 +31,13 @@ jobs:
           persist-credentials: false
 
       - name: Lint GitHub Actions workflows
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
+          if [ -n "$EXPECTED_SHA" ] && [ "${GITHUB_SHA}" != "$EXPECTED_SHA" ]; then
+            echo "Workflow ref resolved to ${GITHUB_SHA}, expected $EXPECTED_SHA"
+            exit 1
+          fi
           brew install actionlint
           actionlint .github/workflows/*.yml
 
@@ -36,7 +47,7 @@ jobs:
           if [ -f Casks/geldapp.rb ]; then
             ruby -c Casks/geldapp.rb
             brew style Casks/geldapp.rb
-            brew audit --cask --strict Casks/geldapp.rb
+            brew audit --cask --strict geldapp
           else
             echo "No cask exists yet; it will be generated from the first published release asset."
           fi

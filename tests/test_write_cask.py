@@ -1,3 +1,4 @@
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -10,17 +11,19 @@ SCRIPT = pathlib.Path(__file__).parents[1] / "scripts" / "write_cask.py"
 
 
 class WriteCaskTests(unittest.TestCase):
-    def invoke(self, asset, checksum):
+    def invoke(self, asset, checksum, dmg_bytes=b"verified dmg"):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = pathlib.Path(temporary.name)
         asset_path = root / "asset.json"
         checksum_path = root / "release.sha256"
         output_path = root / "Casks" / "geldapp.rb"
+        dmg_path = root / "GeldApp.dmg"
+        dmg_path.write_bytes(dmg_bytes)
         asset_path.write_text(json.dumps(asset))
         checksum_path.write_text(checksum)
         result = subprocess.run(
-            [sys.executable, str(SCRIPT), str(asset_path), str(checksum_path), str(output_path)],
+            [sys.executable, str(SCRIPT), str(asset_path), str(checksum_path), str(output_path), str(dmg_path)],
             capture_output=True,
             text=True,
             check=False,
@@ -29,15 +32,18 @@ class WriteCaskTests(unittest.TestCase):
 
     def test_writes_exact_tag_url_and_checksum_without_destructive_zap(self):
         name = "GeldApp-0.2.1-macos-universal.dmg"
-        digest = "a" * 64
+        dmg_bytes = b"verified dmg"
+        digest = hashlib.sha256(dmg_bytes).hexdigest()
         result, output = self.invoke(
             {
                 "tag": "v0.2.1",
                 "version": "0.2.1",
                 "dmg_name": name,
                 "dmg_url": f"https://github.com/GeldApp/GeldApp/releases/download/v0.2.1/{name}",
+                "api_digest": f"sha256:{digest}",
             },
             f"{digest}  {name}\n",
+            dmg_bytes,
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -76,6 +82,27 @@ class WriteCaskTests(unittest.TestCase):
             f"{'a' * 64}  {name}\n",
         )
 
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
+    def test_rejects_mismatched_downloaded_dmg_and_api_digest(self):
+        name = "GeldApp-0.2.1-macos-universal.dmg"
+        checksum = f"{'a' * 64}  {name}\n"
+        asset = {
+            "tag": "v0.2.1",
+            "version": "0.2.1",
+            "dmg_name": name,
+            "dmg_url": f"https://github.com/GeldApp/GeldApp/releases/download/v0.2.1/{name}",
+        }
+        result, output = self.invoke(asset, checksum, b"different bytes")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
+        matching = hashlib.sha256(b"verified dmg").hexdigest()
+        result, output = self.invoke(
+            {**asset, "api_digest": f"sha256:{'b' * 64}"},
+            f"{matching}  {name}\n",
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
 
