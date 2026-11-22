@@ -1,0 +1,107 @@
+name: Update GeldApp cask
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: update-geldapp-cask
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Open verified cask update
+    runs-on: macos-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Find the latest stable app release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api 'repos/GeldApp/GeldApp/releases?per_page=100' \
+            --jq '[.[] | select(.draft == false and .prerelease == false)][0] // empty' \
+            > "$RUNNER_TEMP/release.json"
+          if [ ! -s "$RUNNER_TEMP/release.json" ]; then
+            echo "No public stable app release exists yet; the tap stays empty."
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if python3 scripts/prepare_release.py "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-asset.json"; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            validation_status=$?
+            if [ "$validation_status" -eq 2 ]; then
+              echo "Latest stable release is not an immutable cask-compatible DMG release; waiting for a compatible release."
+              echo 'available=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit "$validation_status"
+          fi
+
+      - name: Read and verify the DMG checksum
+        if: ${{ steps.release.outputs.available == 'true' }}
+        run: |
+          checksum_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["checksum_url"])' "$RUNNER_TEMP/release-asset.json")"
+          curl --fail --location --silent --show-error "$checksum_url" --output "$RUNNER_TEMP/release.sha256"
+          dmg_url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["dmg_url"])' "$RUNNER_TEMP/release-asset.json")"
+          curl --fail --location --silent --show-error "$dmg_url" --output "$RUNNER_TEMP/GeldApp.dmg"
+
+      - name: Write the exact-version cask
+        if: ${{ steps.release.outputs.available == 'true' }}
+        run: python3 scripts/write_cask.py "$RUNNER_TEMP/release-asset.json" "$RUNNER_TEMP/release.sha256" Casks/geldapp.rb "$RUNNER_TEMP/GeldApp.dmg"
+
+      - name: Create or update the cask pull request
+        id: cask-pr
+        if: ${{ steps.release.outputs.available == 'true' }}
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/geldapp-cask
+          delete-branch: true
+          commit-message: 'chore(cask): update GeldApp Homebrew distribution'
+          title: 'chore(cask): update GeldApp cask'
+          body: |
+            Update the GeldApp cask from its latest published stable release.
+
+            The versioned release URL and SHA-256 were read from the public release and checksum asset.
+          add-paths: Casks/geldapp.rb
+
+      - name: Dispatch cask checks on the PR branch
+        if: ${{ steps.release.outputs.available == 'true' && steps.cask-pr.outputs.pull-request-number != '' && steps.cask-pr.outputs.pull-request-branch != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.cask-pr.outputs.pull-request-number }}
+          PR_BRANCH: ${{ steps.cask-pr.outputs.pull-request-branch }}
+          PR_URL: ${{ steps.cask-pr.outputs.pull-request-url }}
+        run: |
+          pr_json="$(gh pr view "$PR_NUMBER" --json state,headRefName,headRefOid)"
+          pr_state="$(jq -r '.state' <<<"$pr_json")"
+          pr_head="$(jq -r '.headRefName' <<<"$pr_json")"
+          pr_sha="$(jq -r '.headRefOid' <<<"$pr_json")"
+          if [ "$pr_state" != OPEN ] || [ "$pr_head" != "$PR_BRANCH" ] || [ -z "$pr_sha" ]; then
+            echo "Refusing workflow dispatch: $PR_URL is not open on the expected branch."
+            exit 1
+          fi
+          echo "Dispatching cask audit for PR head $pr_sha on $PR_BRANCH"
+          gh workflow run checks.yml --ref "$PR_BRANCH" -f expected_sha="$pr_sha"
+
+      - name: Enable squash auto-merge after required checks
+        if: ${{ steps.release.outputs.available == 'true' && steps.cask-pr.outputs.pull-request-number != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.cask-pr.outputs.pull-request-number }}
+        run: gh pr merge "$PR_NUMBER" --auto --squash
