@@ -54,6 +54,7 @@ class WriteCaskTests(unittest.TestCase):
         self.assertIn(f'url "https://github.com/GeldApp/GeldApp/releases/download/v0.2.1/{name}"', cask)
         self.assertIn('app "GeldApp.app"', cask)
         self.assertIn('depends_on macos: :ventura', cask)
+        self.assertIn('caveats "Requires macOS 13.3 or later. The app cannot launch on macOS 13.0 through 13.2."', cask)
         self.assertNotIn("preflight", cask)
         self.assertNotIn(":no_check", cask)
         self.assertNotIn("zap", cask)

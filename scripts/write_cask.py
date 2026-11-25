@@ -57,6 +57,8 @@ def main() -> None:
                 '  depends_on macos: :ventura',
                 "",
                 '  app "GeldApp.app"',
+                "",
+                '  caveats "Requires macOS 13.3 or later. The app cannot launch on macOS 13.0 through 13.2."',
                 "end",
             ]
         )
