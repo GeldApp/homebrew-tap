@@ -43,6 +43,8 @@ def main() -> None:
     output.write_text(
         "\n".join(
             [
+                "# frozen_string_literal: true",
+                "",
                 'cask "geldapp" do',
                 f'  version "{version}"',
                 f'  sha256 "{sha256}"',
@@ -52,9 +54,11 @@ def main() -> None:
                 '  desc "Personal finance workspace"',
                 '  homepage "https://github.com/GeldApp/GeldApp"',
                 "",
-                '  depends_on macos: ">= :catalina"',
+                '  depends_on macos: :ventura',
                 "",
                 '  app "GeldApp.app"',
+                "",
+                '  caveats "Requires macOS 13.3 or later. The app cannot launch on macOS 13.0 through 13.2."',
                 "end",
             ]
         )
