@@ -43,6 +43,8 @@ def main() -> None:
     output.write_text(
         "\n".join(
             [
+                "# frozen_string_literal: true",
+                "",
                 'cask "geldapp" do',
                 f'  version "{version}"',
                 f'  sha256 "{sha256}"',
@@ -52,7 +54,7 @@ def main() -> None:
                 '  desc "Personal finance workspace"',
                 '  homepage "https://github.com/GeldApp/GeldApp"',
                 "",
-                '  depends_on macos: ">= :catalina"',
+                '  depends_on macos: :ventura',
                 "",
                 '  app "GeldApp.app"',
                 "end",

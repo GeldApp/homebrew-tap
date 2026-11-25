@@ -48,10 +48,13 @@ class WriteCaskTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         cask = output.read_text()
+        self.assertTrue(cask.startswith("# frozen_string_literal: true\n"))
         self.assertIn(f'version "0.2.1"', cask)
         self.assertIn(f'sha256 "{digest}"', cask)
         self.assertIn(f'url "https://github.com/GeldApp/GeldApp/releases/download/v0.2.1/{name}"', cask)
         self.assertIn('app "GeldApp.app"', cask)
+        self.assertIn('depends_on macos: :ventura', cask)
+        self.assertNotIn("preflight", cask)
         self.assertNotIn(":no_check", cask)
         self.assertNotIn("zap", cask)
 
