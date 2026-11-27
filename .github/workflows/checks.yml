@@ -50,6 +50,8 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -p 'test_*.py'
           if [ -f Casks/geldapp.rb ]; then
+            export XDG_CONFIG_HOME="$RUNNER_TEMP/homebrew-config"
+            mkdir -p "$XDG_CONFIG_HOME"
             brew tap --custom-remote GeldApp/tap "$GITHUB_WORKSPACE"
             tap_path="$(brew --repo GeldApp/tap)"
             test "$(git -C "$tap_path" rev-parse HEAD)" = "$GITHUB_SHA"
@@ -58,6 +60,7 @@ jobs:
             cmp "$resolved_cask" "$GITHUB_WORKSPACE/Casks/geldapp.rb"
 
             ruby -c Casks/geldapp.rb
+            brew trust --cask GeldApp/tap/geldapp
             brew style Casks/geldapp.rb
             brew audit --cask --strict GeldApp/tap/geldapp
             brew fetch --cask --force GeldApp/tap/geldapp
