@@ -51,7 +51,16 @@ class WriteCaskTests(unittest.TestCase):
         self.assertTrue(cask.startswith("# frozen_string_literal: true\n"))
         self.assertIn(f'version "0.2.1"', cask)
         self.assertIn(f'sha256 "{digest}"', cask)
-        self.assertIn(f'url "https://github.com/GeldApp/GeldApp/releases/download/v0.2.1/{name}"', cask)
+        url_line = next(line for line in cask.splitlines() if line.startswith('  url '))
+        url_template = url_line.removeprefix('  url "').removesuffix('"')
+        self.assertEqual(
+            url_template,
+            "https://github.com/GeldApp/GeldApp/releases/download/v#{version}/GeldApp-#{version}-macos-universal.dmg",
+        )
+        self.assertEqual(
+            url_template.replace("#{version}", "0.2.1"),
+            f"https://github.com/GeldApp/GeldApp/releases/download/v0.2.1/{name}",
+        )
         self.assertIn('app "GeldApp.app"', cask)
         self.assertIn('depends_on macos: :ventura', cask)
         self.assertIn('caveats "Requires macOS 13.3 or later. The app cannot launch on macOS 13.0 through 13.2."', cask)

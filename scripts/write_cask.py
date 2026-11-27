@@ -39,6 +39,12 @@ def main() -> None:
     if release_asset["dmg_url"] != expected_url:
         raise SystemExit("DMG URL does not point to its immutable versioned release asset")
 
+    url_template = expected_url.replace(f"/{tag}/", "/v#{version}/", 1).replace(
+        f"/{dmg_name}", "/GeldApp-#{version}-macos-universal.dmg", 1
+    )
+    if url_template.replace("#{version}", version) != expected_url:
+        raise SystemExit("Versioned DMG URL template does not resolve to the verified asset URL")
+
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         "\n".join(
@@ -49,7 +55,7 @@ def main() -> None:
                 f'  version "{version}"',
                 f'  sha256 "{sha256}"',
                 "",
-                f'  url "{expected_url}"',
+                f'  url "{url_template}"',
                 '  name "GeldApp"',
                 '  desc "Personal finance workspace"',
                 '  homepage "https://github.com/GeldApp/GeldApp"',
